@@ -22,6 +22,7 @@ defined("BUILD_PATH") or define("BUILD_PATH", dirname(dirname(__FILE__)));
  */
 class DocsCommand extends CConsoleCommand
 {
+	const NS_DELIMITER='__'; // "namespace delimiter" for files and links
 	const URL_PATTERN='/\{\{([^\}]+)\|([^\}]+)\}\}/';
 	public $classes;
 	public $views;
@@ -48,8 +49,7 @@ DESCRIPTION
 
 PARAMETERS
   * output-path: required, the directory where the generated documentation would be saved.
-  * mode: optional, either 'online' or 'offline' (default).
-          Indicates whether the generated documentation are for online or offline use.
+  * mode: optional, 'noviews'
 
   * check: check PHPDoc for proper @param syntax
 
@@ -81,7 +81,6 @@ EOD;
 				'/vendors',
 				'/config',
 				'/tests',
-				
 			),
 		);
 		$this->yiiOptions=array(
@@ -112,7 +111,7 @@ EOD;
 
 		if($args[0]=='check') {
 			$checkFiles = CFileHelper::findFiles(BUILD_PATH,$this->appOptions);
-			
+
 			$model=new DocsModel;
 			$model->check($checkFiles);
 			exit();
@@ -120,10 +119,10 @@ EOD;
 
 		if(!is_dir($docPath=$args[0]))
 			$this->usageError("the output directory {$docPath} does not exist.");
-		
+
 		if (isset($args[1]) && $args[1] == "noviews") {
 			$this->enableViews = false;
-			
+
 		}
 		/*$offline=true;
 		if(isset($args[1]) && $args[1]==='online')
@@ -144,7 +143,7 @@ EOD;
 		$themePath=dirname(__FILE__).'/docs';
 
 		echo "\nBuilding.. : " . $this->pageTitle."\n";
-		
+
 		echo "Version... : " . $this->version."\n";
 		echo "Source URL : " . $this->baseSourceUrl."\n\n";
 
@@ -154,11 +153,11 @@ EOD;
 		$this->packages=$model->packages;
 		$this->views = $model->views;
 		echo "Building pages...\n";
-		
+
 		$this->buildOfflinePages($docPath.DIRECTORY_SEPARATOR.'api',$themePath);
 		$this->buildKeywords($docPath);
 		$this->buildPackages($docPath);
-		
+
 		echo "Done.\n\n";
 	}
 
@@ -205,7 +204,7 @@ EOD;
 
 	public function renderSourceLink($sourcePath,$line=null)
 	{
-		
+
 		if (file_exists(BUILD_PATH.$sourcePath)) {
 			if ($this->baseSourceUrl === false) {
 				if($line===null)
@@ -249,6 +248,7 @@ EOD;
 			$this->pageTitle=$name;
 			$content=$this->render('class',array('class'=>$class),true);
 			$content=preg_replace_callback(self::URL_PATTERN,array($this,'fixOfflineLink'),$content);
+			$name=self::fixNamespaces($name);
 			file_put_contents($docPath.'/'.$name.'.html',$content);
 		}
 		if ($this->enableViews) {
@@ -346,16 +346,19 @@ EOD;
 		}
 		return implode(', ',$subclasses);
 	}
-	
+
 	public function renderViews($class)
 	{
 		$views=array();
 		foreach($class->views as $view)
 		{
-			if(isset($this->views[$view]))
-				$views[]='{{'.$view.'|'.array_pop(explode(".",$view)).'}}';
-			else
+			if(isset($this->views[$view])) {
+				$explode = explode('.',$view);
+				$views[]='{{'.$view.'|'.array_pop($explode).'}}';
+			}
+			else {
 				$views[]=$view;
+			}
 		}
 		return implode(', ',$views);
 	}
@@ -412,14 +415,16 @@ EOD;
 
 	protected function fixOfflineLink($matches)
 	{
-		if(($pos=strpos($matches[1],'::'))!==false)
-		{
+		if(($pos=strpos($matches[1],'::'))!==false) {
 			$className=substr($matches[1],0,$pos);
 			$method=substr($matches[1],$pos+2);
-			return "<a href=\"{$className}.html#{$method}\">{$matches[2]}</a>";
+			return sprintf('<a href="%s.html#%s">%s</a>',
+				self::fixNamespaces($className), $method, $matches[2]);
 		}
-		else
-			return "<a href=\"{$matches[1]}.html\">{$matches[2]}</a>";
+		else {
+			return sprintf('<a href="%s.html">%s</a>',
+				self::fixNamespaces($matches[1]), $matches[2]);
+		}
 	}
 
 	protected function fixOnlineLink($matches)
@@ -440,5 +445,10 @@ EOD;
 			else
 				return "<a href=\"/doc/api/{$matches[1]}\">{$matches[2]}</a>";
 		}
+	}
+
+	protected static function fixNamespaces($str)
+	{
+			return str_replace('\\', self::NS_DELIMITER, $str);
 	}
 }
